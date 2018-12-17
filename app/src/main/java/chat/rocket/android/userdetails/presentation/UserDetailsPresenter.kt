@@ -1,5 +1,6 @@
 package chat.rocket.android.userdetails.presentation
 
+import android.database.sqlite.SQLiteDatabaseLockedException
 import chat.rocket.android.chatrooms.domain.FetchChatRoomsInteractor
 import chat.rocket.android.core.lifecycle.CancelStrategy
 import chat.rocket.android.db.DatabaseManager
@@ -7,6 +8,7 @@ import chat.rocket.android.server.domain.GetConnectingServerInteractor
 import chat.rocket.android.server.infraestructure.ConnectionManagerFactory
 import chat.rocket.android.util.extension.launchUI
 import chat.rocket.android.util.extensions.avatarUrl
+import chat.rocket.android.util.retryDB
 import chat.rocket.android.util.retryIO
 import chat.rocket.common.model.RoomType
 import chat.rocket.common.model.roomTypeOf
@@ -70,38 +72,17 @@ class UserDetailsPresenter @Inject constructor(
                 dbManager.userDao().getUser(id = id)
             }
 
-            if (userEntity != null) {
-                view.toDirectMessage(
-                    chatRoom = ChatRoom(
-                        id = result.id,
-                        type = roomTypeOf(RoomType.DIRECT_MESSAGE),
-                        name = userEntity.username ?: userEntity.name.orEmpty(),
-                        fullName = userEntity.name,
-                        favorite = false,
-                        open = false,
-                        alert = false,
-                        status = userStatusOf(userEntity.status),
-                        client = client,
-                        broadcast = false,
-                        archived = false,
-                        default = false,
-                        description = null,
-                        groupMentions = null,
-                        userMentions = null,
-                        lastMessage = null,
-                        lastSeen = null,
-                        topic = null,
-                        announcement = null,
-                        roles = null,
-                        unread = 0,
-                        readonly = false,
-                        muted = null,
-                        subscriptionId = "",
-                        timestamp = null,
-                        updatedAt = result.updatedAt,
-                        user = null
-                    )
-                )
+            userEntity?.let { u ->
+
+                val openedChatRooms = retryDB("chatRoomByName(${u.name}",5,200,2000) {
+                    chatRoomByName(name = u.name).apply {
+                        if (size == 0) throw SQLiteDatabaseLockedException()
+                    }
+                }
+
+                val chatRoom: ChatRoom? = openedChatRooms.firstOrNull()
+
+                view.toDirectMessage(chatRoom!!)
             }
         } catch (ex: Exception) {
             Timber.e(ex)
